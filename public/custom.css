@@ -1,0 +1,27 @@
+/* Custom UI overrides for the G-Chainlit Assistant */
+
+:root {
+  --primary: 262 83% 58%;
+  --chat-radius: 0.75rem;
+}
+
+a[href^="https://github.com/Chainlit/chainlit"] {
+  visibility: hidden;
+  position: relative;
+}
+
+a[href^="https://github.com/Chainlit/chainlit"]::after {
+  content: "G-Chainlit Assistant";
+  visibility: visible;
+  position: absolute;
+  left: 0;
+  font-weight: 600;
+}
+
+.message {
+  border-radius: var(--chat-radius) !important;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+}
