@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -16,6 +17,13 @@ from data_layer import ProjectDataLayer
 from projects import GENERAL_PROFILE
 
 load_dotenv()
+
+# Project files are persisted in project_files/ (see projects.py), not via a
+# Chainlit blob storage client, so the per-upload element-persistence warning is
+# expected noise. Filter just that one message; all other chainlit logs remain.
+logging.getLogger("chainlit").addFilter(
+    lambda r: "No blob_storage_client is configured" not in r.getMessage()
+)
 
 APP_DIR = Path(__file__).parent
 DB_PATH = APP_DIR / "chainlit.db"
