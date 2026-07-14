@@ -951,10 +951,14 @@ async def on_add_project_files(action: cl.Action):
             project["id"], reply.name, reply.path, reply.type, reply.size
         )
 
+    # On resumed threads the session has no dashboard element (on_chat_resume
+    # doesn't send one), so fall back to sending a fresh dashboard message.
     dashboard = cl.user_session.get("dashboard_el")
     if dashboard:
         dashboard.props = _dashboard_props(project)
         await dashboard.update()
+    else:
+        await _send_dashboard(project, f"Updated files for **{project['name']}**:")
 
     names = ", ".join(reply.name for reply in replies)
     await cl.Message(
@@ -976,7 +980,7 @@ Run: `./stop.sh; ./start.sh; sleep 6`, open `http://localhost:8890`, log in, the
 3. Click **New project** → create name `TestCo`, description `A test client` → confirmation message; after a page refresh the profile dropdown shows **TestCo**.
 4. Switch to profile **General** → send "hello" → thread appears in the sidebar WITHOUT a `[...]` prefix; static response still returned.
 5. Type `dryback` in the sidebar search → only the `[Dryback]` thread matches.
-6. Click the old `[Dryback]` thread to resume it → click **Add files** → upload works (proves `on_chat_resume` restored the project).
+6. Click the old `[Dryback]` thread to resume it → click **Add files** → upload works and a fresh dashboard message with the updated file list appears (proves `on_chat_resume` restored the project and the no-`dashboard_el` fallback works).
 
 - [ ] **Step 4: Commit**
 
