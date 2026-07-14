@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 from pathlib import Path
@@ -27,10 +28,59 @@ def _init_db() -> None:
 
 _init_db()
 
+# PoC: hardcoded projects; the full implementation will load these from a projects table.
+PROJECTS = ["Dryback", "Crystal"]
+
+
+class ProjectDataLayer(SQLAlchemyDataLayer):
+    """SQLAlchemyDataLayer adapted for SQLite and project-tagged threads.
+
+    The stock layer binds `tags` as a Python list, which sqlite3 rejects
+    (the whole thread INSERT is then silently dropped by execute_sql), so
+    tags are stored as a JSON string and parsed back on read.
+    """
+
+    async def update_thread(
+        self,
+        thread_id: str,
+        name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        tags: Optional[list] = None,
+    ):
+        if name and tags and not name.startswith(f"[{tags[0]}] "):
+            name = f"[{tags[0]}] {name}"
+        if tags is not None:
+            tags = json.dumps(tags)
+        await super().update_thread(
+            thread_id=thread_id, name=name, user_id=user_id, metadata=metadata, tags=tags
+        )
+
+    async def get_all_user_threads(self, user_id=None, thread_id=None):
+        threads = await super().get_all_user_threads(user_id=user_id, thread_id=thread_id)
+        for thread in threads or []:
+            if isinstance(thread.get("tags"), str):
+                try:
+                    thread["tags"] = json.loads(thread["tags"])
+                except json.JSONDecodeError:
+                    thread["tags"] = []
+        return threads
+
 
 @cl.data_layer
 def get_data_layer():
-    return SQLAlchemyDataLayer(conninfo=f"sqlite+aiosqlite:///{DB_PATH}")
+    return ProjectDataLayer(conninfo=f"sqlite+aiosqlite:///{DB_PATH}")
+
+
+@cl.set_chat_profiles
+async def chat_profiles(current_user: Optional[cl.User]):
+    return [
+        cl.ChatProfile(
+            name=project,
+            markdown_description=f"Workspace for the **{project}** project.",
+        )
+        for project in PROJECTS
+    ]
 
 
 @cl.password_auth_callback
@@ -46,10 +96,11 @@ def auth_callback(username: str, password: str) -> Optional[cl.User]:
 @cl.on_chat_start
 async def on_chat_start():
     user = cl.user_session.get("user")
+    project = cl.user_session.get("chat_profile")
     welcome_card = cl.CustomElement(
         name="WelcomeCard",
         props={
-            "title": "G-Chainlit Assistant",
+            "title": f"Project: {project}" if project else "G-Chainlit Assistant",
             "description": f"Hello {user.identifier}! This is a demo custom UI component.",
         },
     )
