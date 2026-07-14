@@ -79,6 +79,26 @@ def test_add_and_list_project_files(db_path, files_dir, tmp_path):
     assert [f["name"] for f in listed] == ["report.pdf"]
 
 
+def test_add_project_file_rejects_path_traversal(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"%PDF-fake")
+
+    rec = projects.add_project_file(
+        project["id"], "../evil.txt", str(source), "text/plain", 9,
+        db_path=db_path, files_dir=files_dir,
+    )
+    stored = Path(rec["path"])
+    assert stored.parent == files_dir / project["id"]
+    assert stored.name == "evil.txt"
+
+    with pytest.raises(ValueError, match="Invalid file name"):
+        projects.add_project_file(
+            project["id"], "..", str(source), "text/plain", 9,
+            db_path=db_path, files_dir=files_dir,
+        )
+
+
 def test_ensure_seed_projects_idempotent(db_path):
     projects.ensure_seed_projects(["Dryback", "Crystal"], db_path=db_path)
     projects.ensure_seed_projects(["Dryback", "Crystal"], db_path=db_path)

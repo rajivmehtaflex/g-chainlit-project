@@ -83,7 +83,12 @@ def add_project_file(
 ) -> dict:
     dest_dir = (files_dir or PROJECT_FILES_DIR) / project_id
     dest_dir.mkdir(parents=True, exist_ok=True)
+    name = Path(name).name
+    if name in ("", ".", ".."):
+        raise ValueError("Invalid file name")
     dest = dest_dir / name
+    if not dest.resolve().is_relative_to(dest_dir.resolve()):
+        raise ValueError("Invalid file name")
     shutil.copy2(source_path, dest)
 
     record = {
