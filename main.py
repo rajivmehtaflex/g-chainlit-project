@@ -1,4 +1,3 @@
-import json
 import os
 import sqlite3
 from pathlib import Path
@@ -7,8 +6,9 @@ from typing import Optional
 from dotenv import load_dotenv
 
 import chainlit as cl
-from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from chainlit.types import ThreadDict
+
+from data_layer import ProjectDataLayer
 
 load_dotenv()
 
@@ -30,41 +30,6 @@ _init_db()
 
 # PoC: hardcoded projects; the full implementation will load these from a projects table.
 PROJECTS = ["Dryback", "Crystal"]
-
-
-class ProjectDataLayer(SQLAlchemyDataLayer):
-    """SQLAlchemyDataLayer adapted for SQLite and project-tagged threads.
-
-    The stock layer binds `tags` as a Python list, which sqlite3 rejects
-    (the whole thread INSERT is then silently dropped by execute_sql), so
-    tags are stored as a JSON string and parsed back on read.
-    """
-
-    async def update_thread(
-        self,
-        thread_id: str,
-        name: Optional[str] = None,
-        user_id: Optional[str] = None,
-        metadata: Optional[dict] = None,
-        tags: Optional[list] = None,
-    ):
-        if name and tags and not name.startswith(f"[{tags[0]}] "):
-            name = f"[{tags[0]}] {name}"
-        if tags is not None:
-            tags = json.dumps(tags)
-        await super().update_thread(
-            thread_id=thread_id, name=name, user_id=user_id, metadata=metadata, tags=tags
-        )
-
-    async def get_all_user_threads(self, user_id=None, thread_id=None):
-        threads = await super().get_all_user_threads(user_id=user_id, thread_id=thread_id)
-        for thread in threads or []:
-            if isinstance(thread.get("tags"), str):
-                try:
-                    thread["tags"] = json.loads(thread["tags"])
-                except json.JSONDecodeError:
-                    thread["tags"] = []
-        return threads
 
 
 @cl.data_layer
