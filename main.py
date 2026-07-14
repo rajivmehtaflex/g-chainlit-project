@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import chainlit as cl
 from chainlit.types import ThreadDict
 from chainlit.input_widget import TextInput
+from chainlit.data import get_data_layer as get_active_data_layer
 
 import projects
 from data_layer import ProjectDataLayer
@@ -75,7 +76,7 @@ def _dashboard_props(project: dict) -> dict:
     return {
         "name": project["name"],
         "description": project["description"],
-        "files": [{"name": f["name"], "size": f["size"]} for f in files],
+        "files": [{"id": f["id"], "name": f["name"], "size": f["size"]} for f in files],
     }
 
 
@@ -84,6 +85,22 @@ async def _send_dashboard(project: Optional[dict], greeting: str) -> None:
     dashboard = cl.CustomElement(name="ProjectDashboard", props=props)
     cl.user_session.set("dashboard_el", dashboard)
     await cl.Message(content=greeting, elements=[dashboard]).send()
+
+
+async def _resolve_user_id(user: Optional[cl.User]) -> Optional[str]:
+    """Get a PersistedUser id even if session.user somehow isn't persisted yet.
+
+    Mirrors the same defensive check chainlit/server.py uses at the
+    /project/threads endpoint (isinstance(current_user, PersistedUser)) rather
+    than assuming cl.user_session["user"] always has .id.
+    """
+    if isinstance(user, cl.PersistedUser):
+        return user.id
+    data_layer = get_active_data_layer()
+    if not user or not data_layer:
+        return None
+    persisted = await data_layer.get_user(identifier=user.identifier)
+    return persisted.id if persisted else None
 
 
 def _project_settings() -> cl.ChatSettings:
@@ -207,3 +224,120 @@ async def on_add_project_files(action: cl.Action):
     await cl.Message(
         content=f"Attached {len(replies)} file(s) to **{project['name']}**: {names}"
     ).send()
+
+
+@cl.action_callback("update_project_description")
+async def on_update_project_description(action: cl.Action):
+    project = cl.user_session.get("project")
+    if not project:
+        await cl.Message(content="No active project.").send()
+        return
+
+    description = (action.payload.get("description") or "").strip()
+    updated = projects.update_project_description(project["id"], description)
+    cl.user_session.set("project", updated)
+
+    dashboard = cl.user_session.get("dashboard_el")
+    if dashboard:
+        dashboard.props = _dashboard_props(updated)
+        await dashboard.update()
+    else:
+        await _send_dashboard(updated, f"Updated description for **{updated['name']}**:")
+
+
+@cl.action_callback("delete_project")
+async def on_delete_project(action: cl.Action):
+    project = cl.user_session.get("project")
+    if not project:
+        await cl.Message(content="No active project.").send()
+        return
+
+    confirm_name = (action.payload.get("confirm_name") or "").strip()
+    if confirm_name != project["name"]:
+        await cl.Message(
+            content=f"Type the project name exactly (**{project['name']}**) to confirm deletion."
+        ).send()
+        return
+
+    deleted_threads = 0
+    data_layer = get_active_data_layer()
+    if data_layer:
+        user_id = await _resolve_user_id(cl.user_session.get("user"))
+        if user_id:
+            threads = await data_layer.get_all_user_threads(user_id=user_id) or []
+            for thread in threads:
+                if project["name"] in (thread.get("tags") or []):
+                    await data_layer.delete_thread(thread["id"])
+                    deleted_threads += 1
+
+    projects.delete_project(project["id"])
+    cl.user_session.set("project", None)
+    cl.user_session.set("dashboard_el", None)
+
+    await cl.Message(
+        content=(
+            f"Project **{project['name']}** deleted, along with "
+            f"{deleted_threads} thread(s)."
+        ),
+        elements=[
+            cl.CustomElement(
+                name="ReloadPrompt",
+                props={
+                    "message": (
+                        "Reload the page to update the profile dropdown and thread list."
+                    )
+                },
+            )
+        ],
+    ).send()
+
+
+@cl.action_callback("rename_project_file")
+async def on_rename_project_file(action: cl.Action):
+    project = cl.user_session.get("project")
+    if not project:
+        await cl.Message(content="No active project.").send()
+        return
+
+    file_id = action.payload.get("file_id") or ""
+    new_name = (action.payload.get("new_name") or "").strip()
+    file_record = projects.get_project_file(file_id)
+    if not file_record or file_record["projectId"] != project["id"]:
+        await cl.Message(content="File not found in this project.").send()
+        return
+
+    try:
+        projects.rename_project_file(file_id, new_name)
+    except ValueError as exc:
+        await cl.Message(content=f"Could not rename file: {exc}").send()
+        return
+
+    dashboard = cl.user_session.get("dashboard_el")
+    if dashboard:
+        dashboard.props = _dashboard_props(project)
+        await dashboard.update()
+    else:
+        await _send_dashboard(project, f"Renamed a file in **{project['name']}**:")
+
+
+@cl.action_callback("delete_project_file")
+async def on_delete_project_file(action: cl.Action):
+    project = cl.user_session.get("project")
+    if not project:
+        await cl.Message(content="No active project.").send()
+        return
+
+    file_id = action.payload.get("file_id") or ""
+    file_record = projects.get_project_file(file_id)
+    if not file_record or file_record["projectId"] != project["id"]:
+        await cl.Message(content="File not found in this project.").send()
+        return
+
+    projects.delete_project_file(file_id)
+
+    dashboard = cl.user_session.get("dashboard_el")
+    if dashboard:
+        dashboard.props = _dashboard_props(project)
+        await dashboard.update()
+    else:
+        await _send_dashboard(project, f"Removed a file from **{project['name']}**:")
