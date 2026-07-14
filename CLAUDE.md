@@ -9,8 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture & Key Concepts
 
 ### Backend (Python)
-- **`main.py`**: Wiring only — initializes SQLite database from `schema.sql`, registers Chainlit callbacks (`@cl.password_auth_callback`, `@cl.data_layer`, `@cl.set_chat_profiles`, `@cl.on_chat_start`, `@cl.on_message`, `@cl.on_chat_resume`) and action callbacks (`create_project`, `add_project_files`). `set_chat_profiles` offers the `General` default plus one profile per row in the `projects` table (seeded with Dryback/Crystal); `on_chat_start` sends the `ProjectDashboard` custom element and stores `project`/`dashboard_el` in the session; `on_chat_resume` restores the active project from thread tags; `on_message` still returns the static response.
-- **`projects.py`**: Project/file repository backed by SQLite (`projects`, `project_files` tables) using synchronous `sqlite3`. Exposes `create_project`, `get_project`, `list_projects`, `add_project_file` (copies uploads into `project_files/<project_id>/`), `list_project_files`, `ensure_seed_projects`, and the `GENERAL_PROFILE` constant ("General").
+- **`main.py`**: Wiring only — initializes SQLite database from `schema.sql`, registers Chainlit callbacks (`@cl.password_auth_callback`, `@cl.data_layer`, `@cl.set_chat_profiles`, `@cl.on_chat_start`, `@cl.on_message`, `@cl.on_chat_resume`, `@cl.on_settings_update`) and action callbacks (`add_project_files`, `update_project_description`, `delete_project`, `rename_project_file`, `delete_project_file`). `set_chat_profiles` offers the `General` default plus one profile per row in the `projects` table (seeded with Dryback/Crystal); `on_chat_start`/`on_chat_resume` send the `ProjectDashboard` custom element and a `cl.ChatSettings` panel; `on_settings_update` creates a new project from the settings-panel fields; `on_message` still returns the static response. Project *creation* happens via the gear-icon Settings panel, not an action callback. Project *renaming* is unsupported by design — thread `tags` and chat-profile identity are name-keyed (`data_layer.py`/`on_chat_resume` resolve projects by name), so only the description is editable. Any change to the projects table (create or delete) requires a manual page reload to appear in the profile dropdown or thread sidebar — Chainlit has no backend push to refresh those — so those flows send a `ReloadPrompt` element. The `from chainlit.data import get_data_layer as get_active_data_layer` import is aliased to avoid shadowing the module's own `get_data_layer()` data-layer factory.
+- **`projects.py`**: Project/file repository backed by SQLite (`projects`, `project_files` tables) using synchronous `sqlite3`. Exposes `create_project`, `get_project`, `list_projects`, `update_project_description`, `delete_project` (cascades files + directory), `add_project_file` (copies uploads into `project_files/<project_id>/`), `list_project_files`, `get_project_file`, `rename_project_file`, `delete_project_file`, `ensure_seed_projects`, and the `GENERAL_PROFILE` constant ("General").
 - **`data_layer.py`**: `ProjectDataLayer(SQLAlchemyDataLayer)` — JSON-serializes thread `tags` before binding them for SQLite (the stock layer binds a Python list, which sqlite3 rejects, and `execute_sql` silently swallows the error); prefixes thread names with `[Project] ` when tagged with a non-General project; extends sidebar search to match thread names in addition to step output.
 - **`schema.sql`**: SQLite schema used by Chainlit's `SQLAlchemyDataLayer` to store users, threads, steps, elements, and feedbacks, plus the `projects` and `project_files` tables for project mode. Idempotent CREATE TABLE statements.
 - **Database**: `chainlit.db` (SQLite, auto-initialized on startup from `schema.sql`).
@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Frontend & Customization
 - **Config**: `.chainlit/config.toml` controls project settings (theme, sidebar state, custom CSS, features like file upload).
 - **Custom CSS**: `public/custom.css` overrides Chainlit's default styling; sets primary color to purple, message radius, hides the default Chainlit link and replaces it with "G-Chainlit Assistant".
-- **Custom JSX Components**: `public/elements/ProjectDashboard.jsx` is sent via `cl.CustomElement` in `on_chat_start`, showing the active project's name, description, and attached files (or a project-less state). `public/elements/WelcomeCard.jsx` still exists but is no longer sent.
+- **Custom JSX Components**: `public/elements/ProjectDashboard.jsx` is sent via `cl.CustomElement` in `on_chat_start`, showing the active project's name, editable description, per-file rename/delete controls, an upload button, and a typed-confirmation "delete project" danger zone (or a project-less state). `public/elements/ReloadPrompt.jsx` is sent after project create/delete with a "Reload now" button (`window.location.reload()`). `public/elements/WelcomeCard.jsx` still exists but is no longer sent.
 
 ### Authentication & Data Persistence
 - **Password Auth**: `@cl.password_auth_callback` in `main.py` validates credentials against `CHAINLIT_AUTH_USERNAME` and `CHAINLIT_AUTH_PASSWORD` from `.env`. Returns `cl.User` on success, `None` on failure.
@@ -73,7 +73,8 @@ Never commit real `.env` files; they contain secrets.
 | `.chainlit/translations/` | Language files (auto-generated by Chainlit init) |
 | `public/custom.css` | Global CSS overrides |
 | `public/elements/WelcomeCard.jsx` | Custom React component (greeting card, no longer sent) |
-| `public/elements/ProjectDashboard.jsx` | Custom React component; shows active project name/description/files |
+| `public/elements/ProjectDashboard.jsx` | Custom React component; project name, editable description, file rename/delete, delete-project |
+| `public/elements/ReloadPrompt.jsx` | Custom React component; "Reload now" button, sent after project create/delete |
 | `pyproject.toml` | Python dependencies and project metadata |
 | `start.sh` / `stop.sh` | Background process management scripts |
 
@@ -106,9 +107,9 @@ Generated/runtime files (gitignored):
 
 ## Testing
 
-`uv run pytest` runs the suite in `tests/`. To run a single test: `uv run pytest tests/test_projects.py::test_create_and_get_project -v`.
+`uv run pytest` runs the suite in `tests/` (27 tests: 22 in `test_projects.py`, 5 in `test_data_layer.py`). To run a single test: `uv run pytest tests/test_projects.py::test_create_and_get_project -v`.
 
-In addition to the automated suite, manually verify:
+In addition to the automated suite, manually verify (action callbacks and the settings panel have no automated coverage — they need a live browser):
 - User sign-in with correct/incorrect credentials
 - New chat creation and thread resumption
 - Thread history sidebar appears/loads correctly
@@ -117,6 +118,10 @@ In addition to the automated suite, manually verify:
 - Project switching via the chat profile dropdown
 - `[Project]` thread name prefixes appear in the sidebar
 - Project file attach flow (upload via dashboard action, files listed afterward)
+- New project created via the Settings panel (gear icon), then reload to see it in the dropdown
+- Description edit updates the card in place
+- File rename (including duplicate-name rejection) and file delete
+- Project deletion cascades to its tagged threads, then reload to update dropdown and sidebar
 
 ## Pull Requests & Commits
 
