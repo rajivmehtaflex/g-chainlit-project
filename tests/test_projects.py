@@ -49,6 +49,11 @@ def test_create_blank_name_raises(db_path):
         projects.create_project("   ", db_path=db_path)
 
 
+def test_create_reserved_name_raises(db_path):
+    with pytest.raises(ValueError, match="reserved"):
+        projects.create_project("General", db_path=db_path)
+
+
 def test_list_projects_ordered_by_name(db_path):
     projects.create_project("Crystal", db_path=db_path)
     projects.create_project("Dryback", db_path=db_path)
