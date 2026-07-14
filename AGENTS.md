@@ -22,7 +22,7 @@ Use Python 3.12, four-space indentation, typed callbacks, small Chainlit functio
 
 ## Testing Guidelines
 
-Tests use `pytest` and `pytest-asyncio`; name files `test_*.py`. Add focused repository tests for new persistence behavior. Manually verify sign-in, new/resumed chats, project switching and `[Project]` prefixes, Settings-panel creation and reload, description editing, file attachment, safe/duplicate-resistant renaming, file deletion, and confirmed project deletion with cascading tagged-thread cleanup.
+Tests use `pytest` and `pytest-asyncio`; name files `test_*.py`. Add focused repository tests for new persistence behavior. Manually verify sign-in, new/resumed chats, project switching and `[Project]` prefixes, Settings-panel creation and reload, description editing, file attachment, safe/duplicate-resistant renaming, file deletion, and confirmed project deletion with cascading tagged-thread cleanup. For file uploads specifically: confirm a "Saving…/Attached…" progress message on success, that the app stays responsive during large/multi-file copies (they run off the event loop), and that a timed-out or cancelled upload shows an explicit message rather than nothing.
 
 ## Commit & Pull Request Guidelines
 
