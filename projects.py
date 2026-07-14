@@ -90,6 +90,19 @@ def update_project_description(
     return dict(row)
 
 
+def delete_project(
+    project_id: str, db_path: Optional[Path] = None, files_dir: Optional[Path] = None
+) -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute("DELETE FROM project_files WHERE projectId = ?", (project_id,))
+        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    shutil.rmtree((files_dir or PROJECT_FILES_DIR) / project_id, ignore_errors=True)
+
+
 def add_project_file(
     project_id: str,
     name: str,

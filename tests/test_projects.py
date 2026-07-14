@@ -126,3 +126,25 @@ def test_update_project_description_strips_whitespace(db_path):
 def test_update_project_description_missing_project_raises(db_path):
     with pytest.raises(ValueError, match="No project"):
         projects.update_project_description("nonexistent-id", "x", db_path=db_path)
+
+
+def test_delete_project_removes_row_files_and_directory(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"%PDF-fake")
+    projects.add_project_file(
+        project["id"], "report.pdf", str(source), "application/pdf", 9,
+        db_path=db_path, files_dir=files_dir,
+    )
+    project_dir = files_dir / project["id"]
+    assert project_dir.exists()
+
+    projects.delete_project(project["id"], db_path=db_path, files_dir=files_dir)
+
+    assert projects.get_project("Dryback", db_path=db_path) is None
+    assert projects.list_project_files(project["id"], db_path=db_path) == []
+    assert not project_dir.exists()
+
+
+def test_delete_project_missing_project_is_noop(db_path, files_dir):
+    projects.delete_project("nonexistent-id", db_path=db_path, files_dir=files_dir)
