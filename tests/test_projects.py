@@ -103,3 +103,26 @@ def test_ensure_seed_projects_idempotent(db_path):
     projects.ensure_seed_projects(["Dryback", "Crystal"], db_path=db_path)
     projects.ensure_seed_projects(["Dryback", "Crystal"], db_path=db_path)
     assert len(projects.list_projects(db_path=db_path)) == 2
+
+
+def test_update_project_description(db_path):
+    project = projects.create_project("Dryback", "old description", db_path=db_path)
+    updated = projects.update_project_description(
+        project["id"], "new description", db_path=db_path
+    )
+    assert updated["description"] == "new description"
+    assert updated["name"] == "Dryback"
+
+    fetched = projects.get_project("Dryback", db_path=db_path)
+    assert fetched["description"] == "new description"
+
+
+def test_update_project_description_strips_whitespace(db_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    updated = projects.update_project_description(project["id"], "  padded  ", db_path=db_path)
+    assert updated["description"] == "padded"
+
+
+def test_update_project_description_missing_project_raises(db_path):
+    with pytest.raises(ValueError, match="No project"):
+        projects.update_project_description("nonexistent-id", "x", db_path=db_path)

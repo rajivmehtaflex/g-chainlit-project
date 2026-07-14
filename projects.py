@@ -72,6 +72,24 @@ def list_projects(db_path: Optional[Path] = None) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def update_project_description(
+    project_id: str, description: str, db_path: Optional[Path] = None
+) -> dict:
+    conn = _connect(db_path)
+    try:
+        cur = conn.execute(
+            "UPDATE projects SET description = ? WHERE id = ?",
+            (description.strip(), project_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"No project with id '{project_id}'")
+        conn.commit()
+        row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    finally:
+        conn.close()
+    return dict(row)
+
+
 def add_project_file(
     project_id: str,
     name: str,
