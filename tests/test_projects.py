@@ -148,3 +148,95 @@ def test_delete_project_removes_row_files_and_directory(db_path, files_dir, tmp_
 
 def test_delete_project_missing_project_is_noop(db_path, files_dir):
     projects.delete_project("nonexistent-id", db_path=db_path, files_dir=files_dir)
+
+
+def test_get_project_file_returns_record(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"data")
+    rec = projects.add_project_file(
+        project["id"], "report.pdf", str(source), "application/pdf", 4,
+        db_path=db_path, files_dir=files_dir,
+    )
+    assert projects.get_project_file(rec["id"], db_path=db_path) == rec
+
+
+def test_get_project_file_missing_returns_none(db_path):
+    assert projects.get_project_file("nonexistent-id", db_path=db_path) is None
+
+
+def test_rename_project_file(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"data")
+    rec = projects.add_project_file(
+        project["id"], "report.pdf", str(source), "application/pdf", 4,
+        db_path=db_path, files_dir=files_dir,
+    )
+
+    renamed = projects.rename_project_file(
+        rec["id"], "final-report.pdf", db_path=db_path, files_dir=files_dir
+    )
+
+    assert renamed["name"] == "final-report.pdf"
+    new_path = Path(renamed["path"])
+    assert new_path.exists()
+    assert new_path.name == "final-report.pdf"
+    assert not (files_dir / project["id"] / "report.pdf").exists()
+
+    listed = projects.list_project_files(project["id"], db_path=db_path)
+    assert [f["name"] for f in listed] == ["final-report.pdf"]
+
+
+def test_rename_project_file_rejects_path_traversal(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"data")
+    rec = projects.add_project_file(
+        project["id"], "report.pdf", str(source), "application/pdf", 4,
+        db_path=db_path, files_dir=files_dir,
+    )
+    with pytest.raises(ValueError, match="Invalid file name"):
+        projects.rename_project_file(rec["id"], "../evil.txt", db_path=db_path, files_dir=files_dir)
+
+
+def test_rename_project_file_rejects_duplicate_name(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"data")
+    projects.add_project_file(
+        project["id"], "a.pdf", str(source), "application/pdf", 4,
+        db_path=db_path, files_dir=files_dir,
+    )
+    rec_b = projects.add_project_file(
+        project["id"], "b.pdf", str(source), "application/pdf", 4,
+        db_path=db_path, files_dir=files_dir,
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        projects.rename_project_file(rec_b["id"], "a.pdf", db_path=db_path, files_dir=files_dir)
+
+
+def test_rename_project_file_missing_raises(db_path, files_dir):
+    with pytest.raises(ValueError, match="No file"):
+        projects.rename_project_file("nonexistent-id", "new.pdf", db_path=db_path, files_dir=files_dir)
+
+
+def test_delete_project_file_removes_row_and_disk_file(db_path, files_dir, tmp_path):
+    project = projects.create_project("Dryback", db_path=db_path)
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"data")
+    rec = projects.add_project_file(
+        project["id"], "report.pdf", str(source), "application/pdf", 4,
+        db_path=db_path, files_dir=files_dir,
+    )
+    stored = Path(rec["path"])
+    assert stored.exists()
+
+    projects.delete_project_file(rec["id"], db_path=db_path)
+
+    assert projects.get_project_file(rec["id"], db_path=db_path) is None
+    assert not stored.exists()
+
+
+def test_delete_project_file_missing_is_noop(db_path):
+    projects.delete_project_file("nonexistent-id", db_path=db_path)

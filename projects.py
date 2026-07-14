@@ -159,6 +159,83 @@ def list_project_files(project_id: str, db_path: Optional[Path] = None) -> list[
     return [dict(row) for row in rows]
 
 
+def get_project_file(file_id: str, db_path: Optional[Path] = None) -> Optional[dict]:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM project_files WHERE id = ?", (file_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def rename_project_file(
+    file_id: str,
+    new_name: str,
+    db_path: Optional[Path] = None,
+    files_dir: Optional[Path] = None,
+) -> dict:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM project_files WHERE id = ?", (file_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"No file with id '{file_id}'")
+        record = dict(row)
+
+        # Unlike upload (which silently basenames), a rename is a deliberate
+        # single-target action, so reject anything that isn't already a bare
+        # filename rather than quietly transforming it.
+        if new_name != Path(new_name).name or new_name in ("", ".", ".."):
+            raise ValueError("Invalid file name")
+
+        dest_dir = (files_dir or PROJECT_FILES_DIR) / record["projectId"]
+        new_path = dest_dir / new_name
+        if not new_path.resolve().is_relative_to(dest_dir.resolve()):
+            raise ValueError("Invalid file name")
+
+        if new_name != record["name"]:
+            collision = conn.execute(
+                "SELECT 1 FROM project_files WHERE projectId = ? AND name = ? AND id != ?",
+                (record["projectId"], new_name, file_id),
+            ).fetchone()
+            if collision:
+                raise ValueError(
+                    f"A file named '{new_name}' already exists in this project"
+                )
+
+        old_path = Path(record["path"])
+        if old_path.exists():
+            old_path.rename(new_path)
+
+        conn.execute(
+            "UPDATE project_files SET name = ?, path = ? WHERE id = ?",
+            (new_name, str(new_path), file_id),
+        )
+        conn.commit()
+        record["name"] = new_name
+        record["path"] = str(new_path)
+    finally:
+        conn.close()
+    return record
+
+
+def delete_project_file(file_id: str, db_path: Optional[Path] = None) -> None:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT path FROM project_files WHERE id = ?", (file_id,)
+        ).fetchone()
+        conn.execute("DELETE FROM project_files WHERE id = ?", (file_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    if row:
+        Path(row["path"]).unlink(missing_ok=True)
+
+
 def ensure_seed_projects(names: list[str], db_path: Optional[Path] = None) -> None:
     for name in names:
         if get_project(name, db_path=db_path) is None:
