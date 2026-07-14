@@ -72,3 +72,20 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     value INTEGER NOT NULL,
     comment TEXT
 );
+
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    createdAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS project_files (
+    id TEXT PRIMARY KEY,
+    projectId TEXT NOT NULL REFERENCES projects(id),
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    mime TEXT,
+    size INTEGER,
+    createdAt TEXT
+);
