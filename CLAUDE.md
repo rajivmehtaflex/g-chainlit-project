@@ -138,6 +138,7 @@ In addition to the automated suite, manually verify:
 - **aiosqlite** (≥0.22.1): Async SQLite driver.
 - **python-dotenv** (≥1.2.2): Load `.env` files.
 - **uv**: Fast Python package manager and runner.
+- **pytest** (≥9.1.1) / **pytest-asyncio** (≥1.4.0): dev-only, test suite in `tests/`.
 
 ## Tips for Development
 
