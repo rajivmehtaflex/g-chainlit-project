@@ -234,7 +234,11 @@ async def on_update_project_description(action: cl.Action):
         return
 
     description = (action.payload.get("description") or "").strip()
-    updated = projects.update_project_description(project["id"], description)
+    try:
+        updated = projects.update_project_description(project["id"], description)
+    except ValueError as exc:
+        await cl.Message(content=f"Could not update description: {exc}").send()
+        return
     cl.user_session.set("project", updated)
 
     dashboard = cl.user_session.get("dashboard_el")
