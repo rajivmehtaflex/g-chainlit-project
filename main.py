@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 import chainlit as cl
 from chainlit.types import ThreadDict
+from chainlit.input_widget import TextInput
 
 import projects
 from data_layer import ProjectDataLayer
@@ -85,6 +86,26 @@ async def _send_dashboard(project: Optional[dict], greeting: str) -> None:
     await cl.Message(content=greeting, elements=[dashboard]).send()
 
 
+def _project_settings() -> cl.ChatSettings:
+    return cl.ChatSettings(
+        inputs=[
+            TextInput(
+                id="new_project_name",
+                label="New project name",
+                initial="",
+                placeholder="e.g. Acme Corp",
+            ),
+            TextInput(
+                id="new_project_description",
+                label="New project description",
+                initial="",
+                placeholder="Business context: what the client does, location, size…",
+                multiline=True,
+            ),
+        ]
+    )
+
+
 @cl.on_chat_start
 async def on_chat_start():
     user = cl.user_session.get("user")
@@ -100,6 +121,7 @@ async def on_chat_start():
     else:
         greeting = f"Hello {user.identifier}! How can I help you today?"
     await _send_dashboard(project, greeting)
+    await _project_settings().send()
 
 
 @cl.on_chat_resume
@@ -112,28 +134,41 @@ async def on_chat_resume(thread: ThreadDict):
             if project:
                 break
     cl.user_session.set("project", project)
+    await _project_settings().send()
 
 
-@cl.on_message
-async def on_message(message: cl.Message):
-    await cl.Message(content=os.environ["STATIC_RESPONSE"]).send()
-
-
-@cl.action_callback("create_project")
-async def on_create_project(action: cl.Action):
-    name = (action.payload.get("name") or "").strip()
-    description = (action.payload.get("description") or "").strip()
+@cl.on_settings_update
+async def on_settings_update(settings: dict):
+    name = (settings.get("new_project_name") or "").strip()
+    if not name:
+        return
+    description = (settings.get("new_project_description") or "").strip()
     try:
         project = projects.create_project(name, description)
     except ValueError as exc:
         await cl.Message(content=f"Could not create project: {exc}").send()
         return
+
+    await _project_settings().send()  # reset the fields blank for the next entry
     await cl.Message(
-        content=(
-            f"Project **{project['name']}** created. "
-            "Refresh the page and pick it from the profile dropdown to start working in it."
-        )
+        content=f"Project **{project['name']}** created.",
+        elements=[
+            cl.CustomElement(
+                name="ReloadPrompt",
+                props={
+                    "message": (
+                        f"Reload the page to see {project['name']} "
+                        "in the profile dropdown."
+                    )
+                },
+            )
+        ],
     ).send()
+
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    await cl.Message(content=os.environ["STATIC_RESPONSE"]).send()
 
 
 @cl.action_callback("add_project_files")
