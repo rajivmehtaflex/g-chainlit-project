@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sqlite3
 from pathlib import Path
@@ -21,6 +22,9 @@ DB_PATH = APP_DIR / "chainlit.db"
 SCHEMA_PATH = APP_DIR / "schema.sql"
 
 SEED_PROJECTS = ["Dryback", "Crystal"]
+
+UPLOAD_MAX_MB = 200          # Add-files cap; project knowledge files (PDF/XLSX) rarely exceed this
+UPLOAD_TIMEOUT_S = 300       # explicit, generous window for selecting/uploading up to 20 files
 
 
 def _init_db() -> None:
@@ -201,14 +205,28 @@ async def on_add_project_files(action: cl.Action):
         content=f"Upload files to attach to **{project['name']}**.",
         accept=["*/*"],
         max_files=20,
-        max_size_mb=100,
+        max_size_mb=UPLOAD_MAX_MB,
+        timeout=UPLOAD_TIMEOUT_S,
     ).send()
     if not replies:
+        await cl.Message(
+            content=(
+                "No files received — the upload window timed out or was cancelled. "
+                "Click **Add files** on the project card to try again."
+            )
+        ).send()
         return
 
+    saving = cl.Message(content=f"Saving {len(replies)} file(s) to **{project['name']}**…")
+    await saving.send()
+    # shutil.copy2 + sqlite writes are blocking; run them off the event loop so
+    # large/many-file uploads don't freeze the app. Each add_project_file opens
+    # its own connection, so per-file threading is safe; sequential await avoids
+    # SQLite write-lock contention.
     for reply in replies:
-        projects.add_project_file(
-            project["id"], reply.name, reply.path, reply.type, reply.size
+        await asyncio.to_thread(
+            projects.add_project_file,
+            project["id"], reply.name, reply.path, reply.type, reply.size,
         )
 
     # On resumed threads the session has no dashboard element (on_chat_resume
@@ -221,9 +239,8 @@ async def on_add_project_files(action: cl.Action):
         await _send_dashboard(project, f"Updated files for **{project['name']}**:")
 
     names = ", ".join(reply.name for reply in replies)
-    await cl.Message(
-        content=f"Attached {len(replies)} file(s) to **{project['name']}**: {names}"
-    ).send()
+    saving.content = f"Attached {len(replies)} file(s) to **{project['name']}**: {names}"
+    await saving.update()
 
 
 @cl.action_callback("update_project_description")
