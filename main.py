@@ -199,8 +199,29 @@ async def on_chat_resume(thread: ThreadDict):
         greeting = f"Welcome back, {user.identifier}! Project **{project['name']}** is active."
     else:
         greeting = f"Welcome back, {user.identifier}!"
-    await _send_dashboard(project, greeting)
-    await _project_settings().send()
+
+    async def _deferred_resume_ui():
+        # chainlit's own connection_successful handler (chainlit/socket.py) emits a
+        # stale pre-fetch thread snapshot via `resume_thread` right after this
+        # callback returns, and the client hard-replaces its message/element state
+        # from it — wiping out anything sent live during on_chat_resume. Deferring
+        # this send lets that replace finish first so it isn't clobbered.
+        try:
+            await asyncio.sleep(0.5)
+            await _send_dashboard(project, greeting)
+            await _project_settings().send()
+            logger.info(
+                "chat_resume deferred UI sent project={}",
+                project["name"] if project else GENERAL_PROFILE,
+            )
+        except Exception:
+            logger.exception(
+                "chat_resume deferred UI failed project={}",
+                project["name"] if project else GENERAL_PROFILE,
+            )
+
+    task = asyncio.create_task(_deferred_resume_ui())
+    cl.user_session.set("resume_ui_task", task)  # keep a reference so it isn't GC'd mid-sleep
 
 
 @cl.on_settings_update
