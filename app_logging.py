@@ -10,7 +10,7 @@ logger.add(
     LOG_PATH,
     rotation="10 MB",
     retention="7 days",
-    level="INFO",
+    level="DEBUG",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {function}:{line} - {message}",
 )
 

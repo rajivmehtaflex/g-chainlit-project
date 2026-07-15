@@ -6,6 +6,7 @@ from typing import Optional
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from chainlit.types import PageInfo, PaginatedResponse, Pagination, ThreadFilter
 
+from app_logging import logger
 from projects import GENERAL_PROFILE
 
 
@@ -34,6 +35,7 @@ class ProjectDataLayer(SQLAlchemyDataLayer):
         await super().update_thread(
             thread_id=thread_id, name=name, user_id=user_id, metadata=metadata, tags=tags
         )
+        logger.debug("thread updated id={} name={} tags={}", thread_id, name, tags)
 
     async def get_all_user_threads(self, user_id=None, thread_id=None):
         threads = await super().get_all_user_threads(user_id=user_id, thread_id=thread_id)
@@ -43,6 +45,10 @@ class ProjectDataLayer(SQLAlchemyDataLayer):
                     thread["tags"] = json.loads(thread["tags"])
                 except json.JSONDecodeError:
                     thread["tags"] = []
+        logger.debug(
+            "get_all_user_threads user_id={} thread_id={} count={}",
+            user_id, thread_id, len(threads or []),
+        )
         return threads
 
     async def list_threads(
@@ -93,6 +99,10 @@ class ProjectDataLayer(SQLAlchemyDataLayer):
         start_cursor = paginated_threads[0]["id"] if paginated_threads else None
         end_cursor = paginated_threads[-1]["id"] if paginated_threads else None
 
+        logger.debug(
+            "list_threads user_id={} search={} count={}",
+            filters.userId, filters.search, len(paginated_threads),
+        )
         return PaginatedResponse(
             pageInfo=PageInfo(
                 hasNextPage=has_next_page,

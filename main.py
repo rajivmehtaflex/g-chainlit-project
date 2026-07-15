@@ -61,7 +61,9 @@ def auth_callback(username: str, password: str) -> Optional[cl.User]:
         username == os.environ["CHAINLIT_AUTH_USERNAME"]
         and password == os.environ["CHAINLIT_AUTH_PASSWORD"]
     ):
+        logger.info("login succeeded username={}", username)
         return cl.User(identifier=username, metadata={"role": "ADMIN"})
+    logger.warning("login failed username={}", username)
     return None
 
 
@@ -82,6 +84,10 @@ async def chat_profiles(current_user: Optional[cl.User]):
                 or f"Workspace for **{project['name']}**.",
             )
         )
+    logger.debug(
+        "chat_profiles listed user={} count={}",
+        current_user.identifier if current_user else None, len(profiles),
+    )
     return profiles
 
 
@@ -206,8 +212,10 @@ async def on_settings_update(settings: dict):
     try:
         project = projects.create_project(name, description)
     except ValueError as exc:
+        logger.warning("project creation failed name={} reason={}", name, exc)
         await cl.Message(content=f"Could not create project: {exc}").send()
         return
+    logger.info("project created name={} id={}", project["name"], project["id"])
 
     await _project_settings().send()  # reset the fields blank for the next entry
     await cl.Message(
@@ -228,11 +236,13 @@ async def on_settings_update(settings: dict):
 
 @cl.on_message
 async def on_message(message: cl.Message):
+    logger.debug("message received length={}", len(message.content or ""))
     await cl.Message(content=os.environ["STATIC_RESPONSE"]).send()
 
 
 @cl.action_callback("add_project_files")
 async def on_add_project_files(action: cl.Action):
+    logger.info("action_callback invoked name={} id={}", action.name, action.id)
     project = cl.user_session.get("project")
     if not project:
         await cl.Message(
@@ -293,6 +303,7 @@ async def on_add_project_files(action: cl.Action):
 
 @cl.action_callback("update_project_description")
 async def on_update_project_description(action: cl.Action):
+    logger.info("action_callback invoked name={} id={}", action.name, action.id)
     project = cl.user_session.get("project")
     if not project:
         await cl.Message(content="No active project.").send()
@@ -311,6 +322,7 @@ async def on_update_project_description(action: cl.Action):
 
 @cl.action_callback("delete_project")
 async def on_delete_project(action: cl.Action):
+    logger.info("action_callback invoked name={} id={}", action.name, action.id)
     project = cl.user_session.get("project")
     if not project:
         await cl.Message(content="No active project.").send()
@@ -318,6 +330,10 @@ async def on_delete_project(action: cl.Action):
 
     confirm_name = (action.payload.get("confirm_name") or "").strip()
     if confirm_name != project["name"]:
+        logger.warning(
+            "delete_project confirmation mismatch project={} typed={}",
+            project["name"], confirm_name,
+        )
         await cl.Message(
             content=f"Type the project name exactly (**{project['name']}**) to confirm deletion."
         ).send()
@@ -335,6 +351,10 @@ async def on_delete_project(action: cl.Action):
                     deleted_threads += 1
 
     projects.delete_project(project["id"])
+    logger.info(
+        "project deleted name={} id={} cascaded_threads={}",
+        project["name"], project["id"], deleted_threads,
+    )
     cl.user_session.set("project", None)
     cl.user_session.set("dashboard_el", None)
 
@@ -358,6 +378,7 @@ async def on_delete_project(action: cl.Action):
 
 @cl.action_callback("rename_project_file")
 async def on_rename_project_file(action: cl.Action):
+    logger.info("action_callback invoked name={} id={}", action.name, action.id)
     project = cl.user_session.get("project")
     if not project:
         await cl.Message(content="No active project.").send()
@@ -381,6 +402,7 @@ async def on_rename_project_file(action: cl.Action):
 
 @cl.action_callback("delete_project_file")
 async def on_delete_project_file(action: cl.Action):
+    logger.info("action_callback invoked name={} id={}", action.name, action.id)
     project = cl.user_session.get("project")
     if not project:
         await cl.Message(content="No active project.").send()
