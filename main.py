@@ -155,6 +155,7 @@ async def on_chat_start():
 
 @cl.on_chat_resume
 async def on_chat_resume(thread: ThreadDict):
+    user = cl.user_session.get("user")
     tags = thread.get("tags") or []
     project = None
     for tag in tags:
@@ -163,6 +164,11 @@ async def on_chat_resume(thread: ThreadDict):
             if project:
                 break
     cl.user_session.set("project", project)
+    if project:
+        greeting = f"Welcome back, {user.identifier}! Project **{project['name']}** is active."
+    else:
+        greeting = f"Welcome back, {user.identifier}!"
+    await _send_dashboard(project, greeting)
     await _project_settings().send()
 
 
