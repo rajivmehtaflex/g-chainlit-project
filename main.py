@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,7 @@ from chainlit.input_widget import TextInput
 from chainlit.data import get_data_layer as get_active_data_layer
 
 import projects
+from app_logging import logger
 from data_layer import ProjectDataLayer
 from projects import GENERAL_PROFILE
 
@@ -97,6 +99,21 @@ async def _send_dashboard(project: Optional[dict], greeting: str) -> None:
     dashboard = cl.CustomElement(name="ProjectDashboard", props=props)
     cl.user_session.set("dashboard_el", dashboard)
     await cl.Message(content=greeting, elements=[dashboard]).send()
+    logger.info("dashboard sent project={}", project["name"] if project else "None (General)")
+
+
+async def _refresh_dashboard(project: dict, fallback_greeting: str) -> None:
+    dashboard = cl.user_session.get("dashboard_el")
+    if dashboard:
+        dashboard.props = _dashboard_props(project)
+        await dashboard.update()
+        logger.info("dashboard refreshed in place project={}", project["name"])
+    else:
+        await _send_dashboard(project, fallback_greeting)
+        logger.warning(
+            "dashboard_el missing in session; sent fallback dashboard project={}",
+            project["name"],
+        )
 
 
 async def _resolve_user_id(user: Optional[cl.User]) -> Optional[str]:
@@ -145,6 +162,10 @@ async def on_chat_start():
         else None
     )
     cl.user_session.set("project", project)
+    logger.info(
+        "chat_start user={} profile={} project={}",
+        user.identifier, profile, project["name"] if project else GENERAL_PROFILE,
+    )
     if project:
         greeting = f"Hello {user.identifier}! Project **{project['name']}** is active."
     else:
@@ -164,6 +185,10 @@ async def on_chat_resume(thread: ThreadDict):
             if project:
                 break
     cl.user_session.set("project", project)
+    logger.info(
+        "chat_resume user={} thread_id={} tags={} project={}",
+        user.identifier, thread.get("id"), tags, project["name"] if project else GENERAL_PROFILE,
+    )
     if project:
         greeting = f"Welcome back, {user.identifier}! Project **{project['name']}** is active."
     else:
@@ -215,6 +240,7 @@ async def on_add_project_files(action: cl.Action):
         ).send()
         return
 
+    logger.info("upload requested project={}", project["name"])
     replies = await cl.AskFileMessage(
         content=f"Upload files to attach to **{project['name']}**.",
         accept=["*/*"],
@@ -223,6 +249,10 @@ async def on_add_project_files(action: cl.Action):
         timeout=UPLOAD_TIMEOUT_S,
     ).send()
     if not replies:
+        logger.warning(
+            "upload timed out or cancelled project={} timeout_s={}",
+            project["name"], UPLOAD_TIMEOUT_S,
+        )
         await cl.Message(
             content=(
                 "No files received — the upload window timed out or was cancelled. "
@@ -233,24 +263,28 @@ async def on_add_project_files(action: cl.Action):
 
     saving = cl.Message(content=f"Saving {len(replies)} file(s) to **{project['name']}**…")
     await saving.send()
+    logger.info("upload batch started files={} project={}", len(replies), project["name"])
+    batch_start = time.perf_counter()
     # shutil.copy2 + sqlite writes are blocking; run them off the event loop so
     # large/many-file uploads don't freeze the app. Each add_project_file opens
     # its own connection, so per-file threading is safe; sequential await avoids
     # SQLite write-lock contention.
     for reply in replies:
+        file_start = time.perf_counter()
         await asyncio.to_thread(
             projects.add_project_file,
             project["id"], reply.name, reply.path, reply.type, reply.size,
         )
+        logger.info(
+            "file copied name={} duration_ms={}",
+            reply.name, round((time.perf_counter() - file_start) * 1000, 1),
+        )
+    logger.info(
+        "upload batch completed files={} total_duration_ms={} project={}",
+        len(replies), round((time.perf_counter() - batch_start) * 1000, 1), project["name"],
+    )
 
-    # On resumed threads the session has no dashboard element (on_chat_resume
-    # doesn't send one), so fall back to sending a fresh dashboard message.
-    dashboard = cl.user_session.get("dashboard_el")
-    if dashboard:
-        dashboard.props = _dashboard_props(project)
-        await dashboard.update()
-    else:
-        await _send_dashboard(project, f"Updated files for **{project['name']}**:")
+    await _refresh_dashboard(project, f"Updated files for **{project['name']}**:")
 
     names = ", ".join(reply.name for reply in replies)
     saving.content = f"Attached {len(replies)} file(s) to **{project['name']}**: {names}"
@@ -272,12 +306,7 @@ async def on_update_project_description(action: cl.Action):
         return
     cl.user_session.set("project", updated)
 
-    dashboard = cl.user_session.get("dashboard_el")
-    if dashboard:
-        dashboard.props = _dashboard_props(updated)
-        await dashboard.update()
-    else:
-        await _send_dashboard(updated, f"Updated description for **{updated['name']}**:")
+    await _refresh_dashboard(updated, f"Updated description for **{updated['name']}**:")
 
 
 @cl.action_callback("delete_project")
@@ -347,12 +376,7 @@ async def on_rename_project_file(action: cl.Action):
         await cl.Message(content=f"Could not rename file: {exc}").send()
         return
 
-    dashboard = cl.user_session.get("dashboard_el")
-    if dashboard:
-        dashboard.props = _dashboard_props(project)
-        await dashboard.update()
-    else:
-        await _send_dashboard(project, f"Renamed a file in **{project['name']}**:")
+    await _refresh_dashboard(project, f"Renamed a file in **{project['name']}**:")
 
 
 @cl.action_callback("delete_project_file")
@@ -370,9 +394,4 @@ async def on_delete_project_file(action: cl.Action):
 
     projects.delete_project_file(file_id)
 
-    dashboard = cl.user_session.get("dashboard_el")
-    if dashboard:
-        dashboard.props = _dashboard_props(project)
-        await dashboard.update()
-    else:
-        await _send_dashboard(project, f"Removed a file from **{project['name']}**:")
+    await _refresh_dashboard(project, f"Removed a file from **{project['name']}**:")

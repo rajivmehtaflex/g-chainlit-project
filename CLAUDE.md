@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **`data_layer.py`**: `ProjectDataLayer(SQLAlchemyDataLayer)` — JSON-serializes thread `tags` before binding them for SQLite (the stock layer binds a Python list, which sqlite3 rejects, and `execute_sql` silently swallows the error); prefixes thread names with `[Project] ` when tagged with a non-General project; extends sidebar search to match thread names in addition to step output.
 - **`schema.sql`**: SQLite schema used by Chainlit's `SQLAlchemyDataLayer` to store users, threads, steps, elements, and feedbacks, plus the `projects` and `project_files` tables for project mode. Idempotent CREATE TABLE statements.
 - **Database**: `chainlit.db` (SQLite, auto-initialized on startup from `schema.sql`).
+- **`app_logging.py`**: Configures a dedicated `loguru` sink writing to `app_events.log` (rotated at 10 MB, retained 7 days) — separate from Chainlit's own `chainlit.log`. `main.py` imports its `logger` to trace session lifecycle (`chat_start`/`chat_resume`), dashboard refresh (`dashboard sent`/`dashboard refreshed in place`/fallback), and the upload flow (batch + per-file timing, timeout/cancel). Use `tail -f app_events.log` to observe callback behavior directly instead of inferring it from code.
 
 ### Frontend & Customization
 - **Config**: `.chainlit/config.toml` controls project settings (theme, sidebar state, custom CSS, features like file upload).

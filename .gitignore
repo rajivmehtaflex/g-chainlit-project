@@ -19,3 +19,6 @@ chainlit.pid
 chainlit.db
 .chainlit/translations/.cache/
 project_files/
+
+# App event tracing (loguru)
+app_events.log
