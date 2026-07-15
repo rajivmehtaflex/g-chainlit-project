@@ -2,34 +2,36 @@
 
 ## Project Structure & Module Organization
 
-This is a Chainlit assistant with SQLite history and project-aware chat profiles. `main.py` initializes `chainlit.db` from `schema.sql` and wires auth, chat, settings, resume, and project/file callbacks. `projects.py` owns project/file persistence; `data_layer.py` stores project tags and prefixes threads with `[Project] `. `app_logging.py` configures Loguru tracing in `app_events.log`. Config is in `.chainlit/`; custom UI is in `public/`, notably `ProjectDashboard.jsx` and `ReloadPrompt.jsx`. Tests are in `tests/`; `ref_ai/` contains reference notes.
+This Chainlit assistant uses Python 3.12, `uv`, and SQLite history. `main.py` initializes `chainlit.db` from idempotent `schema.sql` and wires callbacks. `projects.py` persists projects/files; `data_layer.py` serializes SQLite tags, adds `[Project] ` names, and searches thread names plus step output. Config is in `.chainlit/`; UI is in `public/`; tests are in `tests/`.
 
-Projects are created from the Settings panel. The dashboard supports description edits, file upload/rename/delete, and confirmed project deletion. Project names are immutable because profile identity and thread tags are name-keyed. Create/delete actions require a page reload and show `ReloadPrompt`. `on_chat_resume` resolves the project from thread tags and re-sends the dashboard and settings. `_refresh_dashboard` updates the existing dashboard or sends a fallback.
-
-Generated paths include `chainlit.db`, `project_files/`, `.files/`, logs, PID files, `.venv/`, and `__pycache__/`.
+Projects are created from the gear Settings panel. The dashboard edits descriptions, manages files, and supports typed-confirmation deletion. Names are immutable because profiles and tags are name-keyed. Chainlit does not persist the dashboard: `on_chat_resume` resolves tags, then uses an `asyncio.create_task` retained in `user_session` to send dashboard/settings after 0.5 seconds, avoiding the stale snapshot. Diagnose with `chat_resume deferred UI sent` or `failed` in `app_events.log`.
 
 ## Build, Test, and Development Commands
 
-- `uv sync`: install Python 3.12 dependencies.
-- `uv run chainlit run main.py --host 0.0.0.0 --port 8000 --headless`: run directly.
-- `./start.sh` / `./stop.sh`: start or stop the background server using `CHAINLIT_PORT`.
-- `uv run pytest`: run the test suite.
-- `tail -f app_events.log` or `tail -f chainlit.log`: inspect application or Chainlit logs.
+- `uv sync`: install dependencies.
+- `uv run chainlit run main.py --host 0.0.0.0 --port 8000 --headless`: run.
+- `./start.sh` / `./stop.sh`: manage the background server using `CHAINLIT_PORT`.
+- `uv run pytest`: run 28 tests.
+- `tail -f chainlit.log`: inspect Chainlit output; `tail -f app_events.log` or `grep INFO app_events.log`: inspect events.
 
-Use `.env` for `CHAINLIT_AUTH_USERNAME`, `CHAINLIT_AUTH_PASSWORD`, `CHAINLIT_AUTH_SECRET`, `STATIC_RESPONSE`, and `CHAINLIT_PORT`.
+Use `.env` for auth credentials/secret, `STATIC_RESPONSE`, and `CHAINLIT_PORT`.
 
 ## Coding Style & Naming Conventions
 
-Use Python 3.12, four-space indentation, typed callbacks, concise async handlers, and `snake_case` Python names. Use uppercase underscore environment variables, explicit idempotent SQL, and PascalCase JSX filenames/exports. Custom elements use Chainlit globals such as `props` and `sendUserMessage`.
+Use four-space indentation, typed callbacks, concise async handlers, `snake_case` Python names, uppercase underscore environment variables, explicit idempotent SQL, and PascalCase JSX filenames/exports. Custom elements use `props` and `sendUserMessage`.
+
+## Runtime and Upload Notes
+
+`app_logging.py` writes a Loguru sink to `app_events.log` with 10 MB rotation and 7-day retention. INFO records actions; DEBUG records background events. Login, projects, actions, uploads, and data-layer calls are traced. Uploads use `cl.AskFileMessage` with 200 MB/300-second limits; Stop Task is expected during the dropzone. Copies use `asyncio.to_thread`, show progress, report timeout/cancel, store files under `project_files/<id>/`, and filter the blob warning.
 
 ## Testing Guidelines
 
-Tests use `pytest` and `pytest-asyncio`; name files `test_*.py`. Add focused repository or logging tests for persistence and observability changes. Manually verify sign-in, new/resumed chats, project switching and `[Project]` names, Settings-panel creation/reload, dashboard edits, file operations, and confirmed deletion with tagged-thread cleanup. Upload checks must cover `Saving…/Attached…` progress, event-loop responsiveness via `asyncio.to_thread`, timeout/cancel feedback, and `app_events.log` entries.
+Tests use `pytest` and `pytest-asyncio`; name files `test_*.py`. Add focused repository/logging tests. Verify auth, new/resumed chats, sidebar loading, project switching, Settings reload, dashboard/file operations, upload feedback, and tagged-thread cleanup. On resume, confirm the dashboard appears about 0.5 seconds after history and success logging is present.
 
 ## Commit & Pull Request Guidelines
 
-Use concise imperative messages such as `Restore project dashboard on chat resume` or `Add loguru event tracing for upload flow`. PRs should include a summary, environment/schema changes, verification steps, and screenshots for UI, CSS, translation, or JSX changes. Link related issues or task notes when available.
+Use concise imperative messages such as `Trace every UI-triggered hook` or `Fix deferred dashboard resume UI`. PRs should include summary, schema changes, verification steps, and screenshots for UI/CSS/JSX changes. Link related issues or task notes.
 
 ## Security & Configuration Tips
 
-Never commit `.env` secrets, credentials, logs, PID files, SQLite databases, uploaded files, or virtual environments. Keep `persist_user_env = false` unless security requirements are reviewed.
+Never commit `.env` secrets, credentials, databases, uploads, logs, PID files, or virtual environments. Keep `persist_user_env = false` unless security requirements are reviewed.
